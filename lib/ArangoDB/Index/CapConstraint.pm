@@ -4,11 +4,6 @@ use warnings;
 use parent 'ArangoDB::Index';
 use Class::Accessor::Lite ( ro => [qw/size/], );
 
-sub new {
-    my $class = shift;
-    return $class->SUPER::new(@_);
-}
-
 1;
 __END__
 
@@ -16,7 +11,7 @@ __END__
 
 =head1 NAME
 
-ArangoDB::CapConstraint
+ArangoDB::Index::CapConstraint - An ArangoDB Cap Constraint
 
 =head1 DESCRIPTION
 
@@ -30,14 +25,26 @@ Constructor.
 
 =head2 id()
 
-Identifier of cap constraint.
+Returns identifier of index.
 
 =head2 type()
 
-Index type.
+Returns type of index.
+
+=head2 collection_id()
+
+Returns identifier of the index.
+
+=head2 drop()
+
+Drop the index.
 
 =head2 size()
 
 Restriction size of collection.
+
+=head1 AUTHOR
+
+Hideaki Ohno E<lt>hide.o.j55 {at} gmail.comE<gt>
 
 =cut

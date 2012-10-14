@@ -44,15 +44,14 @@ subtest 'Normal statement' => sub {
     ];
     is_deeply( \@docs, $expects );
 
-    my $e = exception {
+    like exception {
         my $guard = mock_guard(
             'ArangoDB::Connection' => {
                 http_post => sub {die}
             }
         );
         $sth->execute();
-    };
-    like $e, qr/^Failed to execute query/;
+    }, qr/^Failed to execute query/;
 
 };
 
@@ -63,7 +62,7 @@ subtest 'Use bind var1' => sub {
     is_deeply $sth->bind_vars, { age => 10 };
     is $sth->bind_vars('age'), 10;
 
-    my $cur = $sth->();
+    my $cur = $sth->execute();
     my @docs;
     while ( my $doc = $cur->next() ) {
         push @docs, $doc->content;
@@ -78,14 +77,23 @@ subtest 'Use bind var1' => sub {
     my $expects2 = [ { name => 'John Doe', age => 42 }, ];
     is_deeply( \@docs2, $expects2 );
 
-    my $cur3 = $sth->bind( { age => [ 1 .. 10 ] } )->execute( { do_count => 1 } );
+    my $cur3 = $sth->bind( { age => [ 1 .. 10 ] } )->execute( { do_count => 1, batch_size => 0 } );
     is $cur3->length, 0;
 
-    my $e = exception {
+    like exception {
         $sth->bind( age => {} );
-    };
-    like $e, qr/^Invalid bind parameter value/;
+    }, qr/^Invalid bind parameter value/;
+};
 
+subtest 'Use bind var2' => sub {
+    my $db  = ArangoDB->new($config);
+    my $sth = $db->query('FOR u IN users FILTER u.age > @age SORT u.name ASC RETURN u');
+    lives_ok {
+        $sth->bind( [] );
+        $sth->bind( 10, 0 );
+        $sth->bind( foo => undef );
+        $sth->bind( bar => q{} );
+    };
 };
 
 subtest 'batch query' => sub {
@@ -108,16 +116,23 @@ subtest 'delete cursor' => sub {
     $sth->bind( age => 10 );
     my $cur = $sth->execute( { batch_size => 2, } );
     $cur->delete;
-    my $e = exception {
+    like exception {
         while ( my $doc = $cur->next() ) {
         }
-    };
-    like $e, qr/^Failed to get next batch cursor/;
+    }, qr/^Failed to get next batch cursor/;
 
-    $e = exception {
+    like exception {
         $cur->delete;
-    };
-    like $e, qr/^Failed to delete cursor/;
+    }, qr/^Failed to delete cursor/;
+
+    like exception {
+        my $guard = mock_guard(
+            'ArangoDB::Connection' => {
+                http_delete => sub {die}
+            }
+        );
+        $cur->delete;
+    }, qr/^Failed to delete cursor/;
 
 };
 
@@ -129,17 +144,45 @@ subtest 'parse query' => sub {
     $binds = $db->query('FOR u IN users FILTER u.age > @age SORT u.name ASC RETURN u')->parse();
     is_deeply $binds, [qw/age/];
 
-    my $e = exception {
+    like exception {
         $binds = $db->query('FOR u IN users FILTER u.age > @age SORT u.name ASC RETUR')->parse();
-    };
-    like $e, qr/^Failed to parse query/;
+    }, qr/^Failed to parse query/;
 };
 
-subtest 'explain query' => sub{
-    my $db    = ArangoDB->new($config);
+subtest 'explain query' => sub {
+    my $db   = ArangoDB->new($config);
     my $plan = $db->query('FOR u IN users SORT u.name ASC RETURN u')->explain();
     ok $plan && ref($plan) eq 'ARRAY';
     like exception { $db->query('FOR u IN users SORT u.name ASC RETURN ')->explain(); }, qr/^Failed to explain query/;
+};
+
+subtest 'cursor' => sub {
+    my $db   = ArangoDB->new($config);
+    my $conn = $db->{connection};
+    my $cur  = ArangoDB::Cursor->new( $conn, {} );
+    isa_ok $cur, 'ArangoDB::Cursor';
+
+    $cur = ArangoDB::Cursor->new( $conn, { result => {} } );
+    ok $cur;
+
+    $cur = ArangoDB::Cursor->new(
+        $conn,
+        {   result => [
+                {   _id    => '0/0',
+                    '_rev' => 0,
+                    foo    => [
+                        { bar => 1 }, [1], 42, undef, \do { my $var = 1 }
+                    ]
+                },
+                undef,
+            ]
+        }
+    );
+    my $doc = $cur->next;
+    isa_ok $doc, 'ArangoDB::Document';
+    $cur->next;
+
+    pass();
 };
 
 done_testing;

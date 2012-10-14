@@ -10,7 +10,7 @@ use ArangoDB::Document;
 use ArangoDB::Edge;
 use ArangoDB::Index::Primary;
 use ArangoDB::Index::Hash;
-use ArangoDB::Index::Skiplist;
+use ArangoDB::Index::SkipList;
 use ArangoDB::Index::Geo;
 use ArangoDB::Index::CapConstraint;
 use ArangoDB::Cursor;
@@ -23,15 +23,13 @@ use overload
 
 =head1 NAME
 
-ArangoDB::Collection
+ArangoDB::Collection - An ArangoDB collection
 
 =head1 DESCRIPTION
 
 A instance of ArangoDB collection.
 
-=head1 METHODS
-
-=over 4
+=head1 METHODS FOR COLLECTION HANDLING
 
 =head2 new($connection, $collection_info)
 
@@ -59,6 +57,106 @@ Returns identifer of the collection.
 =head2 status()
 
 Returns status of the collection.
+
+=cut
+
+=pod
+
+=head2 name([$name])
+
+Returns name of collection.
+If $name is set, rename the collection.
+
+=cut
+
+sub name {
+    my ( $self, $name ) = @_;
+    if ($name) {    #rename
+        $self->_put_to_this( 'rename', { name => $name } );
+        $self->{name} = $name;
+    }
+    return $self->{name};
+}
+
+=pod
+
+=head2 count()
+
+Returns number of documents in the collection.
+
+=cut
+
+sub count {
+    my $self = shift;
+    my $res  = $self->_get_from_this('count');
+    return $res->{count};
+}
+
+=pod
+
+=head2 drop()
+
+Drop the collection.
+
+=cut
+
+sub drop {
+    my $self = shift;
+    my $api  = API_COLLECTION . '/' . $self->{id};
+    eval { $self->{connection}->http_delete($api); };
+    if ($@) {
+        $self->_server_error_handler( $@, 'Failed to drop the collection(%s)' );
+    }
+}
+
+=pod
+
+=head2 truncate()
+
+Truncate the collection.
+
+=cut
+
+sub truncate {
+    my $self = shift;
+    eval {
+        my $res = $self->_put_to_this('truncate');
+        $self->{status} = $res->{status};
+    };
+    if ($@) {
+        $self->_server_error_handler( $@, 'Failed to truncate the collection(%s)' );
+    }
+}
+
+=pod
+
+=head2 load()
+
+Load the collection.
+
+=cut
+
+sub load {
+    my $self = shift;
+    my $res  = $self->_put_to_this('load');
+    $self->{status} = $res->{status};
+}
+
+=pod
+
+=head2 unload()
+
+Unload the collection.
+
+=cut
+
+sub unload {
+    my $self = shift;
+    my $res  = $self->_put_to_this('unload');
+    $self->{status} = $res->{status};
+}
+
+=pod
 
 =head2 is_newborn()
 
@@ -132,38 +230,6 @@ sub is_corrupted {
 
 =pod
 
-=head2 name($name)
-
-Returns name of collection.
-If $name is set, rename the collection.
-
-=cut
-
-sub name {
-    my ( $self, $name ) = @_;
-    if ($name) {    #rename
-        $self->_put_to_this( 'rename', { name => $name } );
-        $self->{name} = $name;
-    }
-    return $self->{name};
-}
-
-=pod
-
-=head2 count()
-
-Returns number of documents in the collection.
-
-=cut
-
-sub count {
-    my $self = shift;
-    my $res  = $self->_get_from_this('count');
-    return $res->{count};
-}
-
-=pod
-
 =head2 figure($type)
 
 Returns number of documents and additional statistical information about the collection.
@@ -182,7 +248,7 @@ The number of living documents.
 
 =item alive-size
 
- The total size in bytes used by all living documents.
+The total size in bytes used by all living documents.
 
 =item dead-count
 
@@ -227,7 +293,10 @@ sub figure {
         return $res->{count}       if $type eq 'count';
         return $res->{journalSize} if $type eq 'journalSize';
         my ( $area, $name ) = split( '-', $type );
-        return $res->{figures}{$area}{$name} if defined $area && defined $name;
+        if ( exists $res->{figures}{$area} ) {
+            return $res->{figures}{$area} unless defined $name;
+            return $res->{figures}{$area}{$name};
+        }
     }
     else {
         return $res->{figures};
@@ -258,111 +327,32 @@ sub wait_for_sync {
 
 =pod
 
-=head2 drop()
+=head1 METHODS FOR DOCUMENT HANDLING
 
-Drop the collection.
+=head2 document($doc)
 
-=cut
-
-sub drop {
-    my $self = shift;
-    my $api  = API_COLLECTION . '/' . $self->{id};
-    eval { $self->{connection}->http_delete($api); };
-    if ($@) {
-        $self->_server_error_handler( $@, 'Failed to drop the collection(%s)' );
-    }
-}
-
-=pod
-
-=head2 truncate()
-
-Truncate the collection.
-
-=cut
-
-sub truncate {
-    my $self = shift;
-    eval {
-        my $res = $self->_put_to_this('truncate');
-        $self->{status} = $res->{status};
-    };
-    if ($@) {
-        $self->_server_error_handler( $@, 'Failed to truncate the collection(%s)' );
-    }
-}
-
-=pod
-
-=head2 load()
-
-Load the collection.
-
-=cut
-
-sub load {
-    my $self = shift;
-    my $res  = $self->_put_to_this('load');
-    $self->{status} = $res->{status};
-}
-
-=pod
-
-=head2 unload()
-
-Unload the collection.
-
-=cut
-
-sub unload {
-    my $self = shift;
-    my $res  = $self->_put_to_this('unload');
-    $self->{status} = $res->{status};
-}
-
-=pod
-
-=head2 document($doc_id)
-
-Get documnet in the collection.
+Get documnet in the collection based on $doc. Returns instance of L<ArangoDB::Document>.
 
 =cut
 
 sub document {
-    my ( $self, $doc_id ) = @_;
-    $doc_id = defined $doc_id ? $doc_id : q{};
-    my $api = API_DOCUMENT . '/' . $doc_id;
+    my ( $self, $doc ) = @_;
+    $doc = $doc || q{};
+    my $api = API_DOCUMENT . '/' . $doc;
     my $res = eval { $self->{connection}->http_get($api) };
     if ($@) {
-        $self->_server_error_handler( $@, "Failed to get the document($doc_id) in the collection(%s)" );
+        $self->_server_error_handler( $@, "Failed to get the document($doc) in the collection(%s)" );
     }
-    return ArangoDB::Document->new($res);
-}
-
-=pod 
-
-=head2 all_document_ids()
-
-Returns list of document id in the collection.
-
-=cut
-
-sub all_document_ids {
-    my $self = shift;
-    my $api  = API_DOCUMENT . '?collection=' . $self->{id};
-    my $res  = eval { $self->{connection}->http_get($api) };
-    if ($@) {
-        $self->_server_error_handler( $@, "Failed to get the all document ids in the collection(%s)" );
-    }
-    my @doc_ids = map {m|^/_api/document/(.+)$|} @{ $res->{documents} };
-    return \@doc_ids;
+    return ArangoDB::Document->new( $self->{connection}, $res );
 }
 
 =pod
 
 =head2 save($data)
 
-Save document to the collection.
+Save document to the collection. Returns instance of L<ArangoDB::Document>.
+
+    $collection->save( { name => 'John' } );
 
 =cut
 
@@ -371,7 +361,7 @@ sub save {
     my $api = API_DOCUMENT . '?collection=' . $self->{id};
     my $doc = eval {
         my $res = $self->{connection}->http_post( $api, $data );
-        $self->document( $res->{_id} );
+        ArangoDB::Document->new( $self->{connection}, $res )->fetch;
     };
     if ($@) {
         $self->_server_error_handler( $@, 'Failed to save the new document to the collection(%s)' );
@@ -385,10 +375,19 @@ sub save {
 
 Import multiple documents at once.
 
-$header is ARRAY reference of attribute names.
-$body is ARRAY reference of document values.
+=over 4
 
-Example
+=item $header 
+
+attribute names(ARRAY reference).
+
+=item $body  
+
+document values(ARRAY reference).
+
+=back
+
+Example:
 
     $collection->bulk_import(
         [qw/fistsName lastName age gender/],
@@ -402,7 +401,9 @@ Example
 
 sub bulk_import {
     my ( $self, $header, $body ) = @_;
-    croak ArangoDB::ClientException->new('2nd parameter must be ARRAY reference.')
+    croak( ArangoDB::ClientException->new('1st parameter must be ARRAY reference.') )
+        unless $header && ref($header) eq 'ARRAY';
+    croak( ArangoDB::ClientException->new('2nd parameter must be ARRAY reference.') )
         unless $body && ref($body) eq 'ARRAY';
     my $api  = API_IMPORT . '?collection=' . $self->{id};
     my $data = join "\n", map { encode_json($_) } ( $header, @$body );
@@ -421,11 +422,18 @@ Import multiple self-contained documents at once.
 
 $documents is the ARRAY reference of documents.
 
+Example:
+
+    $collection->bulk_import_self_contained( [ 
+        { name => 'foo', age => 20 }, 
+        { type => 'bar', count => 100 }, 
+    ] );
+
 =cut
 
 sub bulk_import_self_contained {
     my ( $self, $documents ) = @_;
-    croak ArangoDB::ClientException->new('Parameter must be ARRAY reference.')
+    croak( ArangoDB::ClientException->new('Parameter must be ARRAY reference.') )
         unless $documents && ref($documents) eq 'ARRAY';
     my $api  = API_IMPORT . '?type=documents&collection=' . $self->{id};
     my $data = join "\n", map { encode_json($_) } @$documents;
@@ -438,163 +446,75 @@ sub bulk_import_self_contained {
 
 =pod
 
-=head2 update($doc_id,$data)
+=head1 METHODS FOR EDGE HANDLING
 
-Update document in the collection.
+=head2 edge($edge)
 
-=cut
-
-sub update {
-    my ( $self, $doc_id, $data ) = @_;
-    $doc_id = defined $doc_id ? $doc_id : q{};
-    my $api = API_DOCUMENT . '/' . $doc_id;
-    eval { $self->{connection}->http_put( $api, $data ); };
-    if ($@) {
-        $self->_server_error_handler( $@, "Failed to update the document($doc_id) in the collection(%s)" );
-    }
-    return $self->document($doc_id);
-}
-
-=pod
-
-=head2 delete($doc_id)
-
-Delete document in the collection.
-
-=cut
-
-sub delete {
-    my ( $self, $doc_id ) = @_;
-    $doc_id = defined $doc_id ? $doc_id : q{};
-    my $api = API_DOCUMENT . '/' . $doc_id;
-    my $res = eval { $self->{connection}->http_delete($api) };
-    if ($@) {
-        $self->_server_error_handler( $@, "Failed to delete the document($doc_id) in the collection(%s)" );
-    }
-    return;
-}
-
-=pod
-
-=head2 any_edges($vertex)
-
-Returns the list of edges starting or ending in the vertex identified by $vertex.
-
-
-=cut
-
-sub any_edges {
-    my ( $self, $vertex ) = @_;
-    return $self->_get_edges( $vertex, 'any' );
-}
-
-=pod
-
-=head2 in_edges($vertex)
-
-Returns the list of edges ending in the vertex identified by $vertex.
-
-=cut
-
-sub in_edges {
-    my ( $self, $vertex ) = @_;
-    return $self->_get_edges( $vertex, 'in' );
-}
-
-=pod
-
-=head2 out_edges($vertex)
-
-Returns the list of edges starting in the vertex identified by $vertex.
-
-=cut
-
-sub out_edges {
-    my ( $self, $vertex ) = @_;
-    return $self->_get_edges( $vertex, 'out' );
-}
-
-=pod
-
-=head2 edge($edge_id)
-
-Get edge in the collection.
+Get edge in the collection. Returns instance of L<ArangoDB::Edge>.
 
 =cut
 
 sub edge {
-    my ( $self, $edge_id ) = @_;
-    $edge_id = defined $edge_id ? $edge_id : q{};
-    my $api = API_EDGE . '/' . $edge_id;
+    my ( $self, $edge ) = @_;
+    $edge = $edge || q{};
+    my $api = API_EDGE . '/' . $edge;
     my $res = eval { $self->{connection}->http_get($api) };
     if ($@) {
-        $self->_server_error_handler( $@, "Failed to get the edge($edge_id) in the collection(%s)" );
+        $self->_server_error_handler( $@, "Failed to get the edge($edge) in the collection(%s)" );
     }
-    return ArangoDB::Edge->new($res);
+    return ArangoDB::Edge->new( $self->{connection}, $res );
 }
 
 =pod
 
-=head2 save_edge($from,$to,$data)
+=head2 save_edge($from,$to[,$data])
 
-Save edge to the collection.
+Save edge to the collection. Returns instance of L<ArangoDB::Edge>.
+
+=over 4
+
+=item $from
+
+The document that start-point of the edge.
+
+=item $to
+
+The document that end-point of the edge.
+
+=item $data
+
+Document data.
+
+=back
+
+    $collection->save_edge($document1,$document2, { rel => 'has-a' });
 
 =cut
 
 sub save_edge {
     my ( $self, $from, $to, $data ) = @_;
-    my $api = API_EDGE . '?collection=' . $self->{id} . '&from=' . $from . '&to=' . $to;
-    my $res = eval { $self->{connection}->http_post( $api, $data ) };
+    my $api  = API_EDGE . '?collection=' . $self->{id} . '&from=' . $from . '&to=' . $to;
+    my $edge = eval {
+        my $res = $self->{connection}->http_post( $api, $data );
+        $self->edge( $res->{_id} );
+    };
     if ($@) {
         $self->_server_error_handler( $@, "Failed to save the new edge to the collection(%s)" );
     }
-    return $self->edge( $res->{_id} );
+    return $edge;
 }
 
 =pod
 
-=head2 update_edge($edge_id,$data)
+=head1 METHODS FOR SIMPLE QUERY HANDLING
 
-Update edge in the collection.
-
-=cut
-
-sub update_edge {
-    my ( $self, $edge_id, $data ) = @_;
-    $edge_id = defined $edge_id ? $edge_id : q{};
-    my $api = API_EDGE . '/' . $edge_id;
-    eval { $self->{connection}->http_put( $api, $data ) };
-    if ($@) {
-        $self->_server_error_handler( $@, "Failed to update the edge($edge_id) in the collection(%s)" );
-    }
-    return $self->edge($edge_id);
-}
-
-=pod
-
-=head2 delete_edge($edge_id)
-
-Remoce edge in the collection.
-
-=cut
-
-sub delete_edge {
-    my ( $self, $edge_id ) = @_;
-    $edge_id = defined $edge_id ? $edge_id : q{};
-    my $api = API_EDGE . '/' . $edge_id;
-    my $res = eval { $self->{connection}->http_delete($api) };
-    if ($@) {
-        $self->_server_error_handler( $@, "Failed to delete the edge($edge_id) in the collection(%s)" );
-    }
-    return;
-}
-
-=pod
-
-=head2 all($options)
+=head2 all([$options])
  
-Send 'all' simple query. 
-Returns all documents of in the collection.
+Send 'all' simple query. Returns instance of L<ArangoDB::Cursor>.
+
+This will return all documents of in the collection.
+
+    my $cursor = $collection->all({ limit => 100 });
 
 $options is query option(HASH reference).The attributes of $options are:
 
@@ -615,7 +535,7 @@ The documents to skip in the query. (optional)
 sub all {
     my ( $self, $options ) = @_;
     $options ||= {};
-    my $data = { collection => $self->{name} };
+    my $data = { collection => $self->{id} };
     for my $key ( grep { exists $options->{$_} } qw{limit skip} ) {
         $data->{$key} = $options->{$key};
     }
@@ -628,13 +548,23 @@ sub all {
 
 =pod
 
-=item by_example($example,$options)
+=head2 by_example($example[,$options])
 
-Send 'by_example' simple query. 
+Send 'by_example' simple query. Returns instance of L<ArangoDB::Cursor>.
+
 This will find all documents matching a given example.
 
-$example is the exmaple.
-$options is query option(HASH reference).The attributes of $options are:
+    my $cursor = $collection->by_example({ age => 20 });
+
+=over 4
+
+=item $example
+
+The exmaple.
+
+=item $options
+
+Query option(HASH reference).The attributes of $options are:
 
 =over 4
 
@@ -648,12 +578,14 @@ The documents to skip in the query. (optional)
 
 =back 
 
+=back
+
 =cut
 
 sub by_example {
     my ( $self, $example, $options ) = @_;
     $options ||= {};
-    my $data = { collection => $self->{name}, example => $example };
+    my $data = { collection => $self->{id}, example => $example };
     map { $data->{$_} = $options->{$_} } grep { exists $options->{$_} } qw(limit skip);
     my $res = eval { $self->{connection}->http_put( API_SIMPLE_EXAMPLE, $data ) };
     if ($@) {
@@ -666,36 +598,55 @@ sub by_example {
 
 =head2 first_example($example)
 
-Send 'first_example' simple query. 
+Send 'first_example' simple query. Returns instance of L<ArangoDB::Document>.
+
 This will return the first document matching a given example.
 
 $example is the exmaple.
+
+    my $document = $collection->by_example({ age => 20 });
 
 =cut
 
 sub first_example {
     my ( $self, $example ) = @_;
-    my $data = { collection => $self->{name}, example => $example };
+    my $data = { collection => $self->{id}, example => $example };
     my $res = eval { $self->{connection}->http_put( API_SIMPLE_FIRST, $data ) };
     if ($@) {
         $self->_server_error_handler( $@, 'Failed to call Simple API(first_example) for the collection(%s)' );
     }
-    return ArangoDB::Document->new( $res->{document} );
+    return ArangoDB::Document->new( $self->{connection}, $res->{document} );
 }
 
 =pod
 
-=head2 range($attr,$lower,$upper,$options)
+=head2 range($attr,$lower,$upper[,$options])
 
-Send 'range' simple query. 
+Send 'range' simple query. Returns instance of L<ArangoDB::Cursor>.
+
 It looks for documents in the collection with attribute between two values.
 
 Note: You must declare a skip-list index on the attribute in order to be able to use a range query.
 
-$attr is the attribute path to check.
-$lower is the lower bound.
-$upper is the upper bound.
-$options is query option(HASH reference).The attributes of $options are:
+    my $cursor = $collection->range('age', 20, 29, { closed => 1 } );
+
+=over 4
+
+=item $attr 
+
+The attribute path to check.
+
+=item $lower 
+
+The lower bound.
+
+=item $upper 
+
+The upper bound.
+
+=item $options
+
+Query option(HASH reference).The attributes of $options are:
 
 =over 4
 
@@ -713,16 +664,16 @@ The documents to skip in the query. (optional)
 
 =back 
 
+=back
+
 =cut
 
 sub range {
     my ( $self, $attr, $lower, $upper, $options ) = @_;
     $options ||= {};
-    my $data = { collection => $self->{name}, attribute => $attr, left => $lower, right => $upper, };
+    my $data = { collection => $self->{id}, attribute => $attr, left => $lower, right => $upper, };
     map { $data->{$_} = $options->{$_} } grep { exists $options->{$_} } qw(closed limit skip);
-    if ( exists $data->{closed} ) {
-        $data->{closed} = $data->{closed} ? JSON::true : JSON::false;
-    }
+    $data->{closed} = $data->{closed} ? JSON::true : JSON::false;
     my $res = eval { $self->{connection}->http_put( API_SIMPLE_RANGE, $data ) };
     if ($@) {
         $self->_server_error_handler( $@, 'Failed to call Simple API(range) for the collection(%s)' );
@@ -732,21 +683,36 @@ sub range {
 
 =pod
 
-=head2 near($latitude,$longitude,$options)
+=head2 near($latitude,$longitude[,$options])
 
-Send 'near' simple query. 
+Send 'near' simple query. Returns instance of L<ArangoDB::Cursor>.
+
 The default will find at most 100 documents near a given coordinate. 
 The returned list is sorted according to the distance, with the nearest document coming first.
 
-$latitude is the latitude of the coordinate.
-$longitude is longitude of the coordinate.
-$options is query option(HASH reference).The attributes of $options are:
+    $cursor = $collection->near(0,0, { limit => 20 } );
+
+=over 4
+
+=item $latitude 
+
+The latitude of the coordinate.
+
+=item $longitude 
+
+The longitude of the coordinate.
+
+=item $options 
+
+Query option(HASH reference).The attributes of $options are:
 
 =over 4
 
 =item distance
 
-If given, the attribute key used to store the distance. (optional)
+If given, the attribute key used to store the C<distance> to document(optional).
+
+C<distance> is  the distance between the given point and the document in meter.
 
 =item limit
 
@@ -762,12 +728,14 @@ If given, the identifier of the geo-index to use. (optional)
 
 =back 
 
+=back
+
 =cut
 
 sub near {
     my ( $self, $latitude, $longitude, $options ) = @_;
     $options ||= {};
-    my $data = { collection => $self->{name}, latitude => $latitude, longitude => $longitude, };
+    my $data = { collection => $self->{id}, latitude => $latitude, longitude => $longitude, };
     map { $data->{$_} = $options->{$_} } grep { exists $options->{$_} } qw(distance limit skip geo);
     my $res = eval { $self->{connection}->http_put( API_SIMPLE_NEAR, $data ) };
     if ($@) {
@@ -778,22 +746,40 @@ sub near {
 
 =pod
 
-=head2 within($latitude,$longitude,$radius,$options)
+=head2 within($latitude,$longitude,$radius[,$options])
 
-Send 'within' simple query. 
+Send 'within' simple query. Returns instance of L<ArangoDB::Cursor>.
+
 This will find all documents with in a given radius around the coordinate (latitude, longitude).
 The returned list is sorted by distance.
 
-$latitude is the latitude of the coordinate.
-$longitude is longitude of the coordinate.
-$radius is the maximal radius.
-$options is query option(HASH reference).The attributes of $options are:
+    $cursor = $collection->within(0,0, 10 * 1000, { distance => 'distance' } );
+
+=over 4
+
+=item $latitude
+
+The latitude of the coordinate.
+
+=item $longitude
+
+The longitude of the coordinate.
+
+=item $radius 
+
+The maximal radius(meter).
+
+=item $options
+
+Query option(HASH reference).The attributes of $options are:
 
 =over 4
 
 =item distance
 
-If given, the attribute key used to store the distance. (optional)
+If given, the attribute name used to store the C<distance> to document(optional).
+
+C<distance> is  the distance between the given point and the document in meter.
 
 =item limit
 
@@ -807,12 +793,16 @@ The documents to skip in the query. (optional)
 
 If given, the identifier of the geo-index to use. (optional)
 
+=back
+
+=back
+
 =cut
 
 sub within {
     my ( $self, $latitude, $longitude, $radius, $options ) = @_;
     $options ||= {};
-    my $data = { collection => $self->{name}, latitude => $latitude, longitude => $longitude, radius => $radius, };
+    my $data = { collection => $self->{id}, latitude => $latitude, longitude => $longitude, radius => $radius, };
     map { $data->{$_} = $options->{$_} }
         grep { exists $options->{$_} } qw(distance limit skip geo);
     my $res = eval { $self->{connection}->http_put( API_SIMPLE_WITHIN, $data ) };
@@ -824,30 +814,40 @@ sub within {
 
 =pod
 
+=head1 METHODS FOR INDEX HANDLING
+
 =head2 ensure_hash_index($fileds)
 
-Create hash index for the collection.
+Create hash index for the collection. Returns instance of L<ArangoDB::Index::Hash>.
+
+This hash is then used in queries to locate documents in O(1) operations. 
 
 $fileds is the field of index.
+
+    $collection->ensure_hash_index([qw/user.name/]);
+    $collection->save({ user => { name => 'John', age => 42,  } });
 
 =cut
 
 sub ensure_hash_index {
-    my ( $self, $fields, $unique ) = @_;
+    my ( $self, $fields ) = @_;
     my $api  = API_INDEX . '?collection=' . $self->{id};
     my $data = { type => 'hash', unique => JSON::false, fields => $fields, };
     my $res  = eval { $self->{connection}->http_post( $api, $data ) };
     if ($@) {
         $self->_server_error_handler( $@, 'Failed to create hash index on the collection(%s)' );
     }
-    return ArangoDB::Index::Hash->new($res);
+    return ArangoDB::Index::Hash->new( $self->{connection}, $res );
 }
 
 =pod
 
 =head2 ensure_unique_constraint($fileds)
 
-Create unique hash index for the collection.
+Create unique hash index for the collection. Returns instance of L<ArangoDB::Index::Hash>.
+
+This hash is then used in queries to locate documents in O(1) operations. 
+If using unique hash index then no two documents are allowed to have the same set of attribute values.
 
 $fileds is the field of index.
 
@@ -861,16 +861,21 @@ sub ensure_unique_constraint {
     if ($@) {
         $self->_server_error_handler( $@, 'Failed to create unique hash index on the collection(%s)' );
     }
-    return ArangoDB::Index::Hash->new($res);
+    return ArangoDB::Index::Hash->new( $self->{connection}, $res );
 }
 
 =pod
 
 =head2 ensure_skiplist($fileds)
 
-Create skiplist index for the collection.
+Create skip-list index for the collection. Returns instance of L<ArangoDB::Index::SkipList>.
+
+This skip-list is then used in queries to locate documents within a given range. 
 
 $fileds is the field of index.
+
+    $collection->ensure_skiplist([qw/user.age/]);
+    $collection->save({ user => { name => 'John', age => 42 } });
 
 =cut
 
@@ -882,14 +887,17 @@ sub ensure_skiplist {
     if ($@) {
         $self->_server_error_handler( $@, 'Failed to create skiplist index on the collection(%s)' );
     }
-    return ArangoDB::Index::Skiplist->new($res);
+    return ArangoDB::Index::SkipList->new( $self->{connection}, $res );
 }
 
 =pod
 
 =head2 ensure_unique_skiplist($fileds)
 
-Create unique skiplist index for the collection.
+Create unique skip-list index for the collection. Returns instance of L<ArangoDB::Index::SkipList>.
+
+This skip-list is then used in queries to locate documents within a given range. 
+If using unique skip-list then no two documents are allowed to have the same set of attribute values.
 
 $fileds is the field of index.
 
@@ -903,17 +911,36 @@ sub ensure_unique_skiplist {
     if ($@) {
         $self->_server_error_handler( $@, 'Failed to create unique skiplist index on the collection(%s)' );
     }
-    return ArangoDB::Index::Skiplist->new($res);
+    return ArangoDB::Index::SkipList->new( $self->{connection}, $res );
 }
 
 =pod
 
-=head2 ensure_geo_index($fileds,$is_geojson)
+=head2 ensure_geo_index($fileds[,$is_geojson])
 
-Create geo index for the collection.
+Create geo index for the collection. Returns instance of L<ArangoDB::Index::Geo>.
 
-$fileds is the field of index.
-$is_geojson is boolean flag. If it is true, then the order within the list is longitude followed by latitude. 
+=over 4
+
+=item $fileds
+
+The field of index.
+
+=item $is_geojson 
+
+Boolean flag. If it is true, then the order within the list is longitude followed by latitude. 
+
+=back
+
+Create an geo index for a list attribute:
+
+    $collection->ensure_geo_index( [qw/loc/] );
+    $collection->save({ loc => [0 ,0] });
+
+Create an geo index for a hash array attribute:
+
+    $collection->ensure_geo_index( [qw/location.latitude location.longitude/] );
+    $collection->save({ location => { latitude => 0, longitude => 0 } }); 
 
 =cut
 
@@ -930,17 +957,25 @@ sub ensure_geo_index {
     if ($@) {
         $self->_server_error_handler( $@, 'Failed to create geo index on the collection(%s)' );
     }
-    return ArangoDB::Index::Geo->new($res);
+    return ArangoDB::Index::Geo->new( $self->{connection}, $res );
 }
 
 =pod
 
-=head2 ensure_geo_constraint($fileds,$ignore_null)
+=head2 ensure_geo_constraint($fileds[,$ignore_null])
 
 It works like ensure_geo_index() but requires that the documents contain a valid geo definition.
+Returns instance of L<ArangoDB::Index::Geo>.
 
-$fileds is the field of index.
-$ignore_null is boolean flag. If it is true, then documents with a null in location or at least one null in latitude or longitude are ignored.
+=over 4
+
+=item $fileds
+
+The field of index.
+
+=item $ignore_null
+
+Boolean flag. If it is true, then documents with a null in location or at least one null in latitude or longitude are ignored.
 
 =back
 
@@ -959,14 +994,22 @@ sub ensure_geo_constraint {
     if ($@) {
         $self->_server_error_handler( $@, 'Failed to create geo constraint on the collection(%s)' );
     }
-    return ArangoDB::Index::Geo->new($res);
+    return ArangoDB::Index::Geo->new( $self->{connection}, $res );
 }
 
 =pod
 
 =head2 ensure_cap_constraint($size)
 
-Create cap constraint for the collection.
+Create cap constraint for the collection.Returns instance of L<ArangoDB::Index::CapConstraint>.
+
+It is possible to restrict the size of collection.
+
+$size is the maximal number of documents.
+
+Restrict the number of document to at most 100 documents:
+
+    $collection->ensure_cap_constraint(100);
 
 =cut
 
@@ -978,45 +1021,45 @@ sub ensure_cap_constraint {
     if ($@) {
         $self->_server_error_handler( $@, 'Failed to create cap constraint on the collection(%s)' );
     }
-    return ArangoDB::Index::CapConstraint->new($res);
+    return ArangoDB::Index::CapConstraint->new( $self->{connection}, $res );
 }
 
 =pod
 
 =head2 get_index($index_id)
 
-Returns index object.
+Returns index object.(ArangoDB::Index::*)
+
+See:
+
+=over 4
+
+=item * L<ArangoDB::Index::Primary>
+
+=item * L<ArangoDB::Index::Hash>
+
+=item * L<ArangoDB::Index::SkipList>
+
+=item * L<ArangoDB::Index::Geo>
+
+=item * L<ArangoDB::Index::CapConstraint>
+
+=back
 
 =cut
 
 sub get_index {
     my ( $self, $index_id ) = @_;
     $index_id = defined $index_id ? $index_id : q{};
-    my $api = API_INDEX . '/' . $index_id;
-    my $res = eval { $self->{connection}->http_get($api) };
+    my $api   = API_INDEX . '/' . $index_id;
+    my $index = eval {
+        my $res = $self->{connection}->http_get($api);
+        $self->_get_index_instance($res);
+    };
     if ($@) {
         $self->_server_error_handler( $@, 'Failed to get the index($index_id) on the collection(%s)' );
     }
-    return _get_index_instance($res);
-}
-
-=pod
-
-=head2 drop_index($index_id)
-
-Drop the index.
-
-=cut
-
-sub drop_index {
-    my ( $self, $index_id ) = @_;
-    $index_id = defined $index_id ? $index_id : q{};
-    my $api = API_INDEX . '/' . $index_id;
-    my $res = eval { $self->{connection}->http_delete($api) };
-    if ($@) {
-        $self->_server_error_handler( $@, 'Failed to drop the index($index_id)' );
-    }
-    return;
+    return $index;
 }
 
 =pod
@@ -1028,13 +1071,15 @@ Returns list of indexes of the collection.
 =cut
 
 sub indexes {
-    my $self = shift;
-    my $api  = API_INDEX . '?collection=' . $self->{id};
-    my $res  = eval { $self->{connection}->http_get($api) };
+    my $self    = shift;
+    my $api     = API_INDEX . '?collection=' . $self->{id};
+    my @indexes = eval {
+        my $res = $self->{connection}->http_get($api);
+        map { $self->_get_index_instance($_) } @{ $res->{indexes} };
+    };
     if ($@) {
         $self->_server_error_handler( $@, 'Failed to get the index($index_id) on the collection(%s)' );
     }
-    my @indexes = map { _get_index_instance($_) } @{ $res->{indexes} };
     return \@indexes;
 }
 
@@ -1060,36 +1105,32 @@ sub _put_to_this {
     return $res;
 }
 
-sub _get_edges {
-    my ( $self, $vertex, $direction ) = @_;
-    my $api = API_EDGES . '/' . $self->{id} . '?vertex=' . $vertex . '&direction=' . $direction;
-    my $res = eval { $self->{connection}->http_get($api) };
-    if ($@) {
-        $self->_server_error_handler( $@,
-            'Failed to get edges(' . join( ',', $self->{id}, $vertex, $direction ) . ') in the collection(%s)' );
-    }
-    my @edges = map { ArangoDB::Edge->new($_) } @{ $res->{edges} };
-    return \@edges;
-}
-
 # get instance of index
 sub _get_index_instance {
-    my $index = shift;
+    my ( $self, $index ) = @_;
     my $type = $index->{type} || q{};
+    my $conn = $self->{connection};
     if ( $type eq 'primary' ) {
-        return ArangoDB::Index::Primary->new($index);
+        return ArangoDB::Index::Primary->new( $conn, $index );
     }
     elsif ( $type eq 'hash' ) {
-        return ArangoDB::Index::Hash->new($index);
+        return ArangoDB::Index::Hash->new( $conn, $index );
     }
     elsif ( $type eq 'skiplist' ) {
-        return ArangoDB::Index::Skiplist->new($index);
+        return ArangoDB::Index::SkipList->new( $conn, $index );
     }
     elsif ( $type eq 'cap' ) {
-        return ArangoDB::Index::CapConstraint->new($index);
+        return ArangoDB::Index::CapConstraint->new( $conn, $index );
+    }
+    elsif ( $type =~ /^geo[12]$/ ) {
+        return ArangoDB::Index::Geo->new( $conn, $index );
     }
     else {
-        return ArangoDB::Index::Geo->new($index);
+        croak(
+            ArangoDB::ServerException->new(
+                { code => 500, status => '', detail => { errorMessage => "Unknown index type($type)", } }
+            )
+        );
     }
 }
 
@@ -1105,3 +1146,12 @@ sub _server_error_handler {
 
 1;
 __END__
+
+=pod
+
+=head1 AUTHOR
+
+Hideaki Ohno E<lt>hide.o.j55 {at} gmail.comE<gt>
+
+=cut
+

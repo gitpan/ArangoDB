@@ -4,10 +4,17 @@ use warnings;
 use Carp qw(croak);
 use ArangoDB::Connection;
 use ArangoDB::Collection;
+use ArangoDB::Document;
 use ArangoDB::Statement;
 use ArangoDB::Constants qw(:api);
 
-our $VERSION = '0.01_02';
+use overload '&{}' => sub {
+    my $self = shift;
+    return sub { $self->collection( $_[0] ) };
+    },
+    fallback => 1;
+
+our $VERSION = '0.01_03';
 $VERSION = eval $VERSION;
 
 sub new {
@@ -35,11 +42,14 @@ sub create {
 sub find {
     my ( $self, $name ) = @_;
     my $api = API_COLLECTION . '/' . $name;
-    my $res = eval { $self->{connection}->http_get($api); };
+    my $collection = eval { 
+        my $res = $self->{connection}->http_get($api);
+        ArangoDB::Collection->new( $self->{connection}, $res );
+    };
     if ($@) {
         $self->_server_error_handler( $@, "Failed to get collection: $name", 1 );
     }
-    return $res ? ArangoDB::Collection->new( $self->{connection}, $res ) : undef;
+    return $collection;
 }
 
 sub collection {
@@ -61,23 +71,6 @@ sub collections {
     return \@colls;
 }
 
-sub drop {
-    my ( $self, $name ) = @_;
-    my $api = API_COLLECTION . '/' . $name;
-    eval { $self->{connection}->http_delete($api); };
-    if ($@) {
-        $self->_server_error_handler( $@, "Failed to drop collection($name)", 1 );
-    }
-}
-
-sub truncate {
-    my ( $self, $name ) = @_;
-    my $coll = $self->collection($name);
-    if ($coll) {
-        $coll->truncate;
-    }
-}
-
 sub query {
     my ( $self, $query ) = @_;
     return ArangoDB::Statement->new( $self->{connection}, $query );
@@ -90,19 +83,6 @@ sub _server_error_handler {
         $message .= ':' . ( $error->detail->{errorMessage} || q{} );
     }
     croak $message;
-}
-
-sub AUTOLOAD {
-    my $self = shift;
-    my $name = our $AUTOLOAD;
-    $name =~ s/.*:://o;
-    return if $name eq 'DESTROY';
-    return $self->collection($name);
-}
-
-BEGIN {
-    *get_index  = \&ArangoDB::Collection::get_index;
-    *drop_index = \&ArangoDB::Collection::drop_index;
 }
 
 1;
@@ -157,23 +137,36 @@ This supports ArangoDB API implementation 1.01.
 =head2 new($options)
 
 Constructor.
+
 $options is HASH reference.The attributes of $options are:
 
 =over 4
 
 =item host
 
-Hostname or IP address of ArangoDB server.
+Hostname or IP address of ArangoDB server. 
+
 Default: localhost
 
 =item port
 
 Port number of ArangoDB server.
+
 Default: 8529
 
 =item timeout
 
 Seconds of HTTP connection timeout.
+
+=item keep_alive
+
+If it is true, use HTTP Keep-Alive connection.
+
+Default: false
+
+=item auth_type
+
+Authentication method. Supporting "Basic" only.
 
 =item auth_user
 
@@ -183,64 +176,35 @@ User name for authentication
 
 Password for authentication
 
-=item auth_type
-
-Authentication method.
-Supporting "Basic" only.
-
-=item keep_alive
-
-If it is true, use HTTP Keep-Alive connection.
-Default: false
-
 =item proxy
 
-HTTP proxy.
+Proxy url for HTTP connection.
 
 =back
 
 =head2 create($name)
 
-Create new collection.
-Returns instance of L<ArangoDB::Collection>.
+Create new collection. Returns instance of L<ArangoDB::Collection>.
 
 =head2 find($name)
 
-Get a Collection based on $name.
-Returns instance of L<ArangoDB::Collection>.
+Get a Collection based on $name. Returns instance of L<ArangoDB::Collection>.
+
 If the collection does not exist, returns C<undef>. 
 
 =head2 collection($name)
 
 Get or create a Collection based on $name.
+
 If the Collection $name does not exist, Create it.
 
 =head2 collections()
 
-Get all collections.
-Returns ARRAY reference.
-
-=head2 drop($name)
-
-Drop collection.
-Same as `$db->collection($name)->drop();`.
-
-=head2 truncate($name)
-
-Truncate a collection.
-Same as `$db->collection($name)->truncate();`.
-
-=head2 get_index($index_id)
-
-Returns instance of ArangoDB::Index::*.
-
-=head2 drop_index($index_id)
-
-Drop a index.
+Get all collections. Returns ARRAY reference.
 
 =head2 query($query)
 
-Returns instance of L<ArangoDB::Statement>.
+Get AQL statement handler. Returns instance of L<ArangoDB::Statement>.
 
 =head1 AUTHOR
 

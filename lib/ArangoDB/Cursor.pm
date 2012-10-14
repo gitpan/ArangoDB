@@ -2,6 +2,7 @@ package ArangoDB::Cursor;
 use strict;
 use warnings;
 use Carp qw(croak);
+use Scalar::Util qw(weaken);
 use ArangoDB::Document;
 use ArangoDB::Constants qw(:api);
 use Class::Accessor::Lite ( ro => [qw/id count length/], );
@@ -17,8 +18,6 @@ BEGIN {
             my $orig = shift;
             return unless defined $orig;
             my $reftype = ref $orig;
-            return $orig unless defined $reftype;
-
             if ( $reftype eq 'ARRAY' ) {
                 return [ map { !ref($_) ? $_ : _clone($_) } @$orig ];
             }
@@ -35,7 +34,6 @@ sub new {
     if ( defined $cursor->{result} && ref( $cursor->{result} ) eq 'ARRAY' ) {
         $len = scalar @{ $cursor->{result} };
     }
-
     my $self = bless {
         connection => $conn,
         id         => $cursor->{id},
@@ -45,13 +43,14 @@ sub new {
         position   => 0,
         result     => $cursor->{result} || [],
     }, $class;
+    weaken( $self->{connection} );
     return $self;
 }
 
 sub next {
     my $self = shift;
     if ( $self->{position} < $self->{length} || $self->_get_next_batch() ) {
-        return ArangoDB::Document->new( _clone( $self->{result}->[ $self->{position}++ ] ) );
+        return ArangoDB::Document->new( $self->{connection}, _clone( $self->{result}->[ $self->{position}++ ] ) );
     }
     return;
 }
@@ -99,7 +98,16 @@ __END__
 
 =head1 NAME
 
-ArangoDB::Cursor
+ArangoDB::Cursor - An ArangoDB cursor
+
+=head1 SYNOPSIS
+
+    my $cursor = $db->query('FOR u IN users RETURN u')->execute();
+    my @docs;
+    while( my $doc = $cursor->next ){
+        push @docs, $doc;
+    }
+    $cursor->delete;
 
 =head1 DESCRIPTION
 
@@ -118,5 +126,9 @@ Returns next document(Instance of L<ArangoDB::Document>).
 =head2 delete()
 
 Delete cursor.
+
+=head1 AUTHOR
+
+Hideaki Ohno E<lt>hide.o.j55 {at} gmail.comE<gt>
 
 =cut

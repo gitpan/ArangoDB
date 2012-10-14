@@ -23,18 +23,10 @@ sub init {
     map { $_->drop } @{ $db->collections };
 }
 
-subtest 'AUTOLOAD' => sub {
-    my $db   = ArangoDB->new($config);
-    my $coll = $db->new_collection;
-    isa_ok $coll, 'ArangoDB::Collection';
-    is $coll->name, 'new_collection';
-    $coll->drop;
-};
-
 subtest 'SYNOPSYS' => sub {
     my $db = ArangoDB->new($config);
     $db->collection('my_collection')->save( { x => 42, y => { a => 1, b => 2, } } );    # Create document
-    $db->collection('my_collection')->save( { x => 1,  y => { a => 1, b => 10, } } );
+    $db->('my_collection')->save( { x => 1, y => { a => 1, b => 10, } } );
     $db->collection('my_collection')->name('new_name');                                 # rename the collection
     $db->collection('new_name')->ensure_hash_index( [qw/y/] );
     my $cur = $db->collection('new_name')->by_example( { x => 42 } );
@@ -44,7 +36,7 @@ subtest 'SYNOPSYS' => sub {
     }
     is scalar @docs, 1;
     is_deeply $docs[0]->content, { x => 42, y => { a => 1, b => 2, } };
-    $db->collection('new_name')->drop();                                                # Drop the collection
+    $db->('new_name')->drop();                                                          # Drop the collection
 };
 
 subtest 'create collection' => sub {
@@ -60,50 +52,70 @@ subtest 'create collection' => sub {
     ok !$coll->is_deleted;
     ok !$coll->is_corrupted;
 
-    my $e = exception {
+    like exception {
         my $guard = mock_guard( 'ArangoDB::Connection' => { http_post => sub {die}, } );
         $db->create('bar');
-    };
-    like $e, qr/^Failed to create collection/;
+    }, qr/^Failed to create collection/;
+
+    like exception {
+        $db->create('foo');
+    }, qr/^Failed to create collection/;
+
     $db->collection('baz');
 };
 
 subtest 'get collection' => sub {
     my $db   = ArangoDB->new($config);
     my $coll = $db->find('bar');
-    ok !defined $coll;
+    is $coll, undef, 'Returns undef if the collection does not exist.';
+
     $coll = $db->find('foo');
-    ok $coll;
+    isa_ok $coll, 'ArangoDB::Collection';
+
+    like exception {
+        my $guard = mock_guard(
+            'ArangoDB::Connection' => {
+                http_get => sub {
+                    die ArangoDB::ServerException->new(
+                        {   code   => 500,
+                            status => 500,
+                            detail => {},
+                        }
+                    );
+                },
+            }
+        );
+        $db->find('qux');
+    }, qr/Failed to get collection/;
+
 };
 
 subtest 'get all collections' => sub {
     my $db    = ArangoDB->new($config);
     my $colls = $db->collections;
     is scalar @$colls, 2;
-    my $e = exception {
+    like exception {
         my $guard = mock_guard( 'ArangoDB::Connection', { http_get => sub {die}, } );
         $db->collections();
-    };
-    like $e, qr/^Failed to get collections/;
+    }, qr/^Failed to get collections/;
 };
 
 subtest 'drop collection' => sub {
     my $db = ArangoDB->new($config);
     lives_ok {
-        $db->drop('baz');
+        $db->('baz')->drop;
     };
 
-    my $e = exception {
+    like exception {
         my $guard = mock_guard( 'ArangoDB::Connection', { http_delete => sub {die}, } );
-        $db->drop('baz');
-    };
-    like $e, qr/^Failed to drop collection/;
+        $db->('baz')->drop;
+    }, qr/^Failed to drop the collection/;
 };
 
 subtest 'collection name confliction' => sub {
     my $db = ArangoDB->new($config);
     dies_ok { $db->create("foo") } 'Attempt to create collection that already exist name';
-    lives_ok { $db->drop('foo') } 'Drop collection';
+    lives_ok { $db->('foo')->drop } 'Drop collection';
     lives_ok { $db->create( 'foo', { waitForSync => 1, } ); } 'Create collection with name that dropped collection';
 };
 
@@ -145,7 +157,7 @@ subtest 'count documents in collection' => sub {
     my $doc = $coll->save( { baz => 1 } );
     isa_ok $doc, 'ArangoDB::Document';
     is $coll->count, 1;
-    my $doc = $coll->save( { qux => 1 } );
+    $doc = $coll->save( { qux => 1 } );
     is $coll->count, 2;
 
     like exception {
@@ -166,6 +178,7 @@ subtest 'figures' => sub {
     is ref($stats), 'HASH';
     is $stats->{alive}{count}, $coll->figure('alive-count');
     is $stats->{alive}{size},  $coll->figure('alive-size');
+    is ref( $coll->figure('alive') ), 'HASH';
     is $coll->figure('count'), 2;
     ok $coll->figure('journalSize');
     ok !defined $coll->figure('foo');
@@ -175,7 +188,7 @@ subtest 'drop collection by name' => sub {
     my $db   = ArangoDB->new($config);
     my $coll = $db->create('qux');
     ok $coll;
-    $db->drop('qux');
+    $db->('qux')->drop;
     $coll = $db->find('qux');
     ok !defined $coll;
 };
@@ -200,7 +213,7 @@ subtest 'truncate collection' => sub {
     is $coll->count, 0;
     $coll->save( { save => 2 } );
     is $coll->count, 1;
-    lives_ok { $db->truncate('foo') };
+    lives_ok { $db->('foo')->truncate };
     is $coll->count, 0;
 };
 
@@ -223,6 +236,7 @@ subtest 'hash index' => sub {
     isa_ok $index1, 'ArangoDB::Index::Hash';
     is $index1->type, 'hash';
     is_deeply $index1->fields, [qw/bar.a/];
+    is $index1->collection_id, $coll->id;
 
     like exception {
         $coll->ensure_hash_index( [] );
@@ -257,15 +271,14 @@ subtest 'skiplist index' => sub {
     $coll->save( { foo => 10, } );
 
     my $index1 = $coll->ensure_skiplist( [qw/foo/] );
-    isa_ok $index1, 'ArangoDB::Index::Skiplist';
+    isa_ok $index1, 'ArangoDB::Index::SkipList';
     is $index1->type, 'skiplist';
     is_deeply $index1->fields, [qw/foo/];
     ok !$index1->unique;
 
-    my $e = exception {
+    like exception {
         $coll->ensure_skiplist( [] );
-    };
-    like $e, qr/^Failed to create skiplist index on the collection/;
+    }, qr/^Failed to create skiplist index on the collection/;
 };
 
 subtest 'unique skiplist index' => sub {
@@ -277,7 +290,7 @@ subtest 'unique skiplist index' => sub {
     $coll->save( { foo => 10, } );
 
     my $index1 = $coll->ensure_unique_skiplist( [qw/foo/] );
-    isa_ok $index1, 'ArangoDB::Index::Skiplist';
+    isa_ok $index1, 'ArangoDB::Index::SkipList';
     is $index1->type, 'skiplist';
     is_deeply $index1->fields, [qw/foo/];
     ok $index1->unique;
@@ -310,7 +323,7 @@ subtest 'geo index' => sub {
 
     $coll->save( { lat => 0, lon => 0 } );
     $coll->save( { lat => 0, lon => 1 } );
-    my $index = $coll->ensure_geo_index( [qw/lat lon/] );
+    $index = $coll->ensure_geo_index( [qw/lat lon/] );
     isa_ok $index, 'ArangoDB::Index::Geo';
     is $index->type, 'geo2';
     is_deeply $index->fields, [qw/lat lon/];
@@ -378,29 +391,67 @@ subtest 'get indexes' => sub {
         );
         $coll->indexes();
     }, qr/^Failed to get the index/;
+
 };
 
 subtest 'get index' => sub {
     my $db   = ArangoDB->new($config);
     my $coll = $db->collection('index_test9');
 
-    my $index = $db->get_index( $coll . '/0' );
+    my $index = $coll->get_index( $coll . '/0' );
     isa_ok $index, 'ArangoDB::Index::Primary';
     is $index->fields->[0], '_id';
 
-    like exception { $db->get_index() }, qr/^Failed to get the index/;
+    like exception { $coll->get_index() }, qr/^Failed to get the index/;
+};
+
+subtest 'unknown index' => sub {
+    my $db   = ArangoDB->new($config);
+    my $coll = $db->collection('index_test10');
+
+    like exception {
+        my $guard = mock_guard(
+            'ArangoDB::Connection' => {
+                http_get => sub {
+                    return { type => 'foo', };
+                    }
+            }
+        );
+        $coll->get_index();
+    }, qr/Unknown index type\(foo\)/;
+
+    like exception {
+        my $guard = mock_guard(
+            'ArangoDB::Connection' => {
+                http_get => sub {
+                    return {};
+                    }
+            }
+        );
+        $coll->get_index();
+    }, qr/Unknown index type\(\)/;
 };
 
 subtest 'Drop index' => sub {
     my $db   = ArangoDB->new($config);
-    my $coll = $db->collection('index_test10');
+    my $coll = $db->collection('index_test11');
 
     my $index = $coll->ensure_hash_index( [qw/foo/] );
-    $coll->drop_index($index);
+    $index->drop();
 
     ok exception { $db->get_index($index) };
 
-    like exception { $coll->drop_index($index) }, qr/^Failed to drop the index/;
+    like exception { $index->drop() }, qr/^Failed to drop the index/;
+
+    like exception {
+        my $guard = mock_guard(
+            'ArangoDB::Connection' => {
+                http_delete => sub {die}
+            }
+        );
+        $index->drop();
+    }, qr/^Failed to drop the index/;
+
 };
 
 done_testing;

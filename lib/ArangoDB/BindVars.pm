@@ -44,13 +44,9 @@ sub count {
     use Data::Util qw(:check);
     use ArangoDB::ClientException;
 
-    sub is_bool {
-        !defined( $_[0] ) || $_[0] eq "" || "$_[0]" eq '1' || "$_[0]" eq '0';
-    }
-
     sub validate {
         my $val = shift;
-        return if is_string($val) || is_integer($val) || is_number($val) || is_bool($val);
+        return if !defined($val) || is_string($val) || $val eq q{};
         if ( is_array_ref($val) ) {
             for my $v (@$val) {
                 validate($v);
@@ -63,35 +59,3 @@ sub count {
 
 1;
 __END__
-
-=pod
-
-=head1 NAME
-
-ArangoDB::BindVars
-
-=head1 DESCRIPTION
-
-A simple container for bind variables.
-
-=head1 METHODS
-
-=head2 new()
-
-Constructor.
-
-=head2 get_all()
-
-Returns all bind variables.
-
-=head2 get($key)
-
-Returns bind variable.
-
-=head2 set($vars)
-=head2 set( $key => $val )
-
-Set bind variable(s).
-$vars is HASH reference that set of key/value pairs.
-
-=cut
