@@ -1,20 +1,5 @@
+Build.PL
 Changes
-inc/File/Temp.pm
-inc/Module/Install.pm
-inc/Module/Install/AuthorTests.pm
-inc/Module/Install/Base.pm
-inc/Module/Install/Can.pm
-inc/Module/Install/Fetch.pm
-inc/Module/Install/Include.pm
-inc/Module/Install/Makefile.pm
-inc/Module/Install/Metadata.pm
-inc/Module/Install/Repository.pm
-inc/Module/Install/Win32.pm
-inc/Module/Install/WriteAll.pm
-inc/Test/Fatal.pm
-inc/Test/Mock/Guard.pm
-inc/Test/More.pm
-inc/Test/TCP.pm
 lib/ArangoDB.pm
 lib/ArangoDB/AbstractDocument.pm
 lib/ArangoDB/BindVars.pm
@@ -34,10 +19,10 @@ lib/ArangoDB/Index/Primary.pm
 lib/ArangoDB/Index/SkipList.pm
 lib/ArangoDB/ServerException.pm
 lib/ArangoDB/Statement.pm
-Makefile.PL
 MANIFEST			This list of files
+META.json
 META.yml
-README.pod
+README
 t/00_compile.t
 t/01_new.t
 t/02_collection.t
@@ -45,8 +30,10 @@ t/03_document.t
 t/04_edge.t
 t/05_query.t
 t/06_simple_query.t
+t/07_index.t
 t/lib/Prove/Plugin/StartArangoDB.pm
 xt/01_podspell.t
 xt/02_perlcritic.t
 xt/03_pod.t
+xt/04_pod_coverage.t
 xt/perlcriticrc
