@@ -16,7 +16,7 @@ use overload '&{}' => sub {
     },
     fallback => 1;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 $VERSION = eval $VERSION;
 
 sub new {
@@ -105,7 +105,7 @@ ArangoDB - ArangoDB client for Perl.
   });
   
   # Find or create collection
-  my $foo = $db->foo;
+  my $foo = $db->('foo');
   
   # Create new document
   $foo->save({ x => 42, y => { a => 1, b => 2, } });
@@ -113,10 +113,10 @@ ArangoDB - ArangoDB client for Perl.
   $foo->name('new_name'); # rename the collection
   
   # Create hash index.
-  $foo->create_hash_index([qw/x y/]);
+  $foo->ensure_hash_index([qw/x y/]);
   
   # Simple query
-  my $cursor = $db->new_name->by_example({ b => 2 });
+  my $cursor = $db->('new_name')->by_example({ b => 2 });
   while( my $doc = $cursor->next ){
       # do something
   }
@@ -125,7 +125,7 @@ ArangoDB - ArangoDB client for Perl.
   my $cursor2 = $db->query( 
       'FOR u IN users FILTER u.age > @age SORT u.name ASC RETURN u' 
   )->bind( { age => 19 } )->execute();
-  my $docs = $cursor2->next_all;
+  my $docs = $cursor2->all;
 
 =head1 DESCRIPTION
 
@@ -200,6 +200,10 @@ If the collection does not exist, returns C<undef>.
 Get or create a Collection based on $name.
 
 If the Collection $name does not exist, Create it.
+
+There is shorthand method for get collection instance.
+
+    my $collection = $db->('collection-name');
 
 =head2 collections()
 

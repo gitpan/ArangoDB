@@ -121,24 +121,22 @@ ArangoDB::Statement - ArangoDB AQL handler
     });
   
     my $sth = $db->query('FOR u IN users FILTER u.active == true RETURN u');
-    my $cur = $sth->execute();
-    while( my $doc = $cur->next() ){
+    my $cursor = $sth->execute({ 
+        do_count => 1, 
+        batch_size => 10,
+    });
+    while( my $doc = $cursor->next() ){
         # do something
     }
   
     # Use bind variable
-    $cur2 = $db->query(
+    my $documents = $db->query(
         'FOR u IN users FILTER u.age >= @age SORT u.name ASC RETURN u'
-    )->bind( age => 18 )->execute({ do_count => 1, batch_size => 10 });
-    
-    while( my $doc = $cur2->next() ){
-        # do something
-    }    
-
+    )->bind( age => 18 )->execute()->all;
 
 =head1 DESCRIPTION
 
-A AQL(Arango Query Language) statement handler.
+An AQL(Arango Query Language) statement handler.
 
 =head1 METHODS
 
@@ -218,12 +216,12 @@ Bind variable value.
 
 Returns instance of L<ArangoDB::Statement>.You can use method chain:
 
-    my $cursor = $db->query(
+    my $documents = $db->query(
         'FOR u IN users FILTER u.type == @type && u.age >= @age SORT u.name ASC RETURN u'
     )->bind({
         type => 1, 
         age  => 19 
-    })->execute();
+    })->execute->all;
 
 =head1 AUTHOR
 

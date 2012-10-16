@@ -1,7 +1,7 @@
 ---
 abstract: 'ArangoDB client for Perl.'
 author:
-  - 'Hideaki Ohno<hide.o.j55@gmail.com >'
+  - 'Hideaki Ohno<hide.o.j55@gmail.com>'
 build_requires:
   File::Temp: 0
   Test::Deep: 0
@@ -30,7 +30,7 @@ no_index:
 provides:
   ArangoDB:
     file: lib/ArangoDB.pm
-    version: 0.01
+    version: 0.02
   ArangoDB::AbstractDocument:
     file: lib/ArangoDB/AbstractDocument.pm
     version: 0
@@ -89,7 +89,7 @@ requires:
   Carp: 0
   Class::Accessor::Lite: 0.05
   Data::Util: 0.59
-  Furl: 0.38
+  Furl: 0.42
   JSON: 2.53
   List::MoreUtils: 0
   MIME::Base64: 0
@@ -100,4 +100,4 @@ resources:
   bugtracker: https://github.com/hideo55/p5-ArangoDB/issues
   license: http://dev.perl.org/licenses/
   repository: git://github.com/hideo55/p5-ArangoDB.git
-version: 0.01
+version: 0.02
