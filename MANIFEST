@@ -1,5 +1,6 @@
 Build.PL
 Changes
+eg/arangodb.pl
 lib/ArangoDB.pm
 lib/ArangoDB/AbstractDocument.pm
 lib/ArangoDB/BindVars.pm

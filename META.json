@@ -21,7 +21,8 @@
       "directory" : [
          "t",
          "xt",
-         "inc"
+         "inc",
+         "eg"
       ]
    },
    "prereqs" : {
@@ -42,6 +43,9 @@
          }
       },
       "runtime" : {
+         "recommends" : {
+            "Data::Clone" : 0
+         },
          "requires" : {
             "Carp" : 0,
             "Class::Accessor::Lite" : "0.05",
@@ -59,7 +63,7 @@
    "provides" : {
       "ArangoDB" : {
          "file" : "lib/ArangoDB.pm",
-         "version" : "0.03"
+         "version" : "0.04"
       },
       "ArangoDB::AbstractDocument" : {
          "file" : "lib/ArangoDB/AbstractDocument.pm",
@@ -146,5 +150,5 @@
          "url" : "git://github.com/hideo55/p5-ArangoDB.git"
       }
    },
-   "version" : "0.03"
+   "version" : "0.04"
 }

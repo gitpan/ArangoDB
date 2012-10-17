@@ -27,10 +27,11 @@ no_index:
     - t
     - xt
     - inc
+    - eg
 provides:
   ArangoDB:
     file: lib/ArangoDB.pm
-    version: 0.03
+    version: 0.04
   ArangoDB::AbstractDocument:
     file: lib/ArangoDB/AbstractDocument.pm
     version: 0
@@ -85,6 +86,8 @@ provides:
   ArangoDB::Statement:
     file: lib/ArangoDB/Statement.pm
     version: 0
+recommends:
+  Data::Clone: 0
 requires:
   Carp: 0
   Class::Accessor::Lite: 0.05
@@ -100,4 +103,4 @@ resources:
   bugtracker: https://github.com/hideo55/p5-ArangoDB/issues
   license: http://dev.perl.org/licenses/
   repository: git://github.com/hideo55/p5-ArangoDB.git
-version: 0.03
+version: 0.04
