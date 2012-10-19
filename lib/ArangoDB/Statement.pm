@@ -111,7 +111,7 @@ __END__
 
 =head1 NAME
 
-ArangoDB::Statement - ArangoDB AQL handler
+ArangoDB::Statement - An ArangoDB AQL handler
 
 =head1 SYNOPSIS
 
@@ -138,7 +138,7 @@ ArangoDB::Statement - ArangoDB AQL handler
 
 =head1 DESCRIPTION
 
-An AQL(Arango Query Language) statement handler.
+An AQL(ArangoDB Query Language) statement handler.
 
 =head1 METHODS
 

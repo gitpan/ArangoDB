@@ -1,5 +1,5 @@
 {
-   "abstract" : "ArangoDB client for Perl.",
+   "abstract" : "ArangoDB client for Perl",
    "author" : [
       "Hideaki Ohno<hide.o.j55@gmail.com>"
    ],
@@ -28,10 +28,10 @@
    "prereqs" : {
       "build" : {
          "requires" : {
+            "App::Prove" : 0,
             "File::Temp" : 0,
             "Test::Deep" : 0,
             "Test::Fatal" : 0,
-            "Test::Harness" : "3.00",
             "Test::Mock::Guard" : 0,
             "Test::More" : "0.98",
             "Test::TCP" : 0
@@ -63,7 +63,7 @@
    "provides" : {
       "ArangoDB" : {
          "file" : "lib/ArangoDB.pm",
-         "version" : "0.04"
+         "version" : "0.05"
       },
       "ArangoDB::AbstractDocument" : {
          "file" : "lib/ArangoDB/AbstractDocument.pm",
@@ -150,5 +150,5 @@
          "url" : "git://github.com/hideo55/p5-ArangoDB.git"
       }
    },
-   "version" : "0.04"
+   "version" : "0.05"
 }

@@ -15,7 +15,7 @@ use overload '&{}' => sub {
     },
     fallback => 1;
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 $VERSION = eval $VERSION;
 
 sub new {
@@ -90,7 +90,7 @@ __END__
 
 =head1 NAME
 
-ArangoDB - ArangoDB client for Perl.
+ArangoDB - ArangoDB client for Perl
 
 =head1 SYNOPSIS
 
@@ -127,7 +127,11 @@ ArangoDB - ArangoDB client for Perl.
 
 =head1 DESCRIPTION
 
-ArangoDB is ArangoDB client for Perl.
+This module is an ArangoDB's REST API client for Perl.
+
+ArangoDB is a universal open-source database with a flexible data model for documents, graphs, and key-values.
+
+More information: L<http://www.arangodb.org/>
 
 =head1 SUPPORT API VERSION
 
@@ -219,13 +223,21 @@ Get AQL statement handler. Returns instance of L<ArangoDB::Statement>.
 
     my $sth = $db->query('FOR u IN users FILTER u.age > @age SORT u.name ASC RETURN u');
 
-=head1 AUTHOR
-
-Hideaki Ohno E<lt>hide.o.j55 {at} gmail.comE<gt>
 
 =head1 SEE ALSO
 
 ArangoDB websie L<http://www.arangodb.org/>
+
+=head1 DEVELOPMENT
+
+=head2 Repository
+
+L<https://github.com/hideo55/p5-ArangoDB>
+
+=head1 AUTHOR
+
+Hideaki Ohno E<lt>hide.o.j55 {at} gmail.comE<gt>
+
 
 =head1 LICENSE
 
