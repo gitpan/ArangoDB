@@ -63,7 +63,7 @@
    "provides" : {
       "ArangoDB" : {
          "file" : "lib/ArangoDB.pm",
-         "version" : "0.05"
+         "version" : "0.06"
       },
       "ArangoDB::AbstractDocument" : {
          "file" : "lib/ArangoDB/AbstractDocument.pm",
@@ -150,5 +150,5 @@
          "url" : "git://github.com/hideo55/p5-ArangoDB.git"
       }
    },
-   "version" : "0.05"
+   "version" : "0.06"
 }

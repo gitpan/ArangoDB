@@ -15,7 +15,7 @@ use overload '&{}' => sub {
     },
     fallback => 1;
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 $VERSION = eval $VERSION;
 
 sub new {
@@ -162,6 +162,8 @@ Default: 8529
 =item timeout
 
 Seconds of HTTP connection timeout.
+
+Default: 300
 
 =item keep_alive
 
