@@ -1,137 +1,323 @@
 package ArangoDB::Document;
+
 use strict;
 use warnings;
-use utf8;
-use 5.008001;
-use Carp qw(croak);
-use parent 'ArangoDB::AbstractDocument';
-use ArangoDB::Constants qw(:api);
-use ArangoDB::Edge;
 
-sub new {
-    my $class = shift;
-    my $self  = $class->SUPER::new(@_);
-    $self->{_api_path} = API_DOCUMENT . '/' . $self;
+use base qw(
+    ArangoDB::Base
+);
+
+use Data::Dumper;
+use JSON::XS;
+
+my $JSON = JSON::XS->new->utf8;
+
+
+
+# new
+#
+# create new instance.  optionally try to get document by name (_id).
+sub new
+{
+    my($class) = shift;
+    # call inherited constructor
+    my $self = $class->SUPER::new(@_);
+    # if a name arg was passed then try to get
+    $self->get if $self->name;
+
     return $self;
 }
 
-sub any_edges {
-    my ( $self, $vertex ) = @_;
-    return $self->_get_edges('any');
-}
+# create
+#
+# POST /_api/document
+#
+# Query Parameters
+#
+# collection: The collection name.
+# createCollection: If this parameter has a value of true or yes, then the collection is created if it does not yet exist. Other values will be ignored so the collection must be present for the operation to succeed.
+sub create
+{
+    my($self, $doc, $args) = @_;
+    # set default args
+    $doc ||= {};
+    $args ||= {};
+    # require valid args
+    die 'Invalid Args'
+        unless ref $doc eq 'HASH'
+        and ref $args eq 'HASH';
+    # set collection name as query param
+    $args->{collection} = $self->collection->name;
 
-sub in_edges {
-    my ( $self, $vertex ) = @_;
-    return $self->_get_edges('in');
-}
+    my $res = $self->arango->http->post(
+        $self->db_path . '/_api/document',
+        $args,
+        $JSON->encode($doc),
+    );
 
-sub out_edges {
-    my ( $self, $vertex ) = @_;
-    return $self->_get_edges('out');
-}
-
-sub _api_path {
-    $_[0]->{_api_path};
-}
-
-sub _get_edges {
-    my ( $self, $direction ) = @_;
-    my $vertex = $self->{_document_handle};
-    my $api    = API_EDGES . '/' . $self->{_collection_id} . '?vertex=' . $vertex . '&direction=' . $direction;
-    my $res    = eval { $self->{connection}->http_get($api) };
-    if ($@) {
-        $self->_server_error_handler( $@, "get edges($vertex) that related to" );
+    # if creation was success then update internal state
+    if ( $res && $res->{_key} ) {
+        # set name to the value of _key
+        $self->{name} = $res->{_key};
+        # set data pointer to the passed in doc. any patches
+        # will then update the original hash
+        $self->{data} = $doc;
+        # store revision number
+        $self->{rev} = $res->{_rev};
+        # store in document register
+        $self->collection->documents->{$self->name} = $self;
     }
-    my $conn = $self->{connection};
-    my @edges = map { ArangoDB::Edge->new( $conn, $_ ) } @{ $res->{edges} };
-    return \@edges;
+
+    return $res;
 }
 
-# Handling server error
-sub _server_error_handler {
-    my ( $self, $error, $action ) = @_;
-    my $msg = sprintf( 'Failed to %s the document(%s)', $action, $self->{_document_handle} );
-    if ( ref($error) && $error->isa('ArangoDB::ServerException') ) {
-        $msg .= ':' . ( $error->detail->{errorMessage} || q{} );
+# data
+#
+# ref to hash containing document data
+sub data { $_[0]->{data} ||= {} }
+
+# delete
+#
+# DELETE /_api/document/{document-handle}
+#
+# Query Parameters
+#
+# rev: You can conditionally delete a document based on a target revision id by using the rev URL parameter.
+# policy: To control the update behavior in case there is a revision mismatch, you can use the policy parameter. This is the same as when replacing documents (see replacing documents for more details).
+# waitForSync: Wait until document has been synced to disk.
+sub delete
+{
+    my($self, $doc, $args) = @_;
+    # set default args
+    $args ||= {};
+    # require valid args
+    die 'Invalid Args'
+        unless ref $args eq 'HASH';
+
+    my $res = $self->arango->http->delete(
+        $self->db_path . '/_api/document/' . $self->collection->name . '/' . $self->name,
+        $args,
+    );
+
+    # if request was success then update internal state
+    if ( $res && $res->{_key} ) {
+        # remove registry entry
+        delete $self->collection->documents->{$self->name};
+        # remove data and rev which are now null
+        delete $self->{data};
+        delete $self->{rev};
     }
-    croak $msg;
+
+    return $res;
 }
+
+# get
+#
+# GET /_api/document/{document-handle}
+sub get
+{
+    my($self) = @_;
+
+    my $res = $self->arango->http->get(
+        $self->db_path . '/_api/document/' . $self->collection->name . '/' . $self->name
+    );
+
+    # if request was success then update internal state
+    if ( $res && $res->{_key} ) {
+        # empty data hash
+        my $data = $self->data;
+        %$data = ();
+        # copy data keys out of response
+        for my $key (keys %$res) {
+            next if substr($key, 0, 1) eq '_';
+            $data->{$key} = $res->{$key};
+        }
+        # store revision number
+        $self->{rev} = $res->{_rev};
+    }
+
+    return $res;
+}
+
+# head
+#
+# HEAD /_api/document/{document-handle}
+sub head
+{
+    my($self) = @_;
+
+    my $res = $self->arango->http->head(
+        $self->db_path . '/_api/document/' . $self->collection->name . '/' . $self->name
+    );
+
+    return $res;
+}
+
+# list
+#
+# GET /_api/document
+#
+# Query Parameters
+#
+# collection: The name of the collection.
+# type: The type of the result. The following values are allowed:
+# id: returns a list of document ids (_id attributes)
+# key: returns a list of document keys (_key attributes)
+# path: returns a list of document URI paths. This is the default.
+sub list
+{
+    my($self, $args) = @_;
+    # set default args
+    $args ||= {};
+    # require valid args
+    die 'Invalid Args'
+        unless ref $args eq 'HASH';
+
+    $args->{collection} = $self->collection->name;
+
+    return $self->arango->http->get(
+        $self->db_path . '/_api/document',
+        $args
+    );
+}
+
+# patch
+#
+# PATCH /_api/document/{document-handle}
+#
+# Query Parameters
+#
+# keepNull: If the intention is to delete existing attributes with the patch command, the URL query parameter keepNull can be used with a value of false. This will modify the behavior of the patch command to remove any attributes from the existing document that are contained in the patch document with an attribute value of null.
+# waitForSync: Wait until document has been synced to disk.
+# rev: You can conditionally patch a document based on a target revision id by using the rev URL parameter.
+# policy: To control the update behavior in case there is a revision mismatch, you can use the policy parameter.
+sub patch
+{
+    my($self, $doc, $args) = @_;
+    # set default args
+    $doc ||= {};
+    $args ||= {};
+    # require valid args
+    die 'Invalid Args'
+        unless ref $doc eq 'HASH'
+        and ref $args eq 'HASH';
+
+    my $res = $self->arango->http->patch(
+        $self->db_path . '/_api/document/' . $self->collection->name . '/' . $self->name,
+        $args,
+        $JSON->encode($doc),
+    );
+
+    # if replace was success then update internal state
+    if ( $res && $res->{_key} ) {
+        # get data hash
+        my $data = $self->data;
+        # copy updated keys from doc
+        for my $key (keys %$doc) {
+            $data->{$key} = $doc->{$key};
+        }
+        # store revision number
+        $self->{rev} = $res->{_rev};
+    }
+
+    return $res;
+}
+
+# replace
+#
+# PUT /_api/document/{document-handle}
+#
+# Query Parameters
+#
+# waitForSync: Wait until document has been synced to disk.
+# rev: You can conditionally replace a document based on a target revision id by using the rev URL parameter.
+# policy: To control the update behavior in case there is a revision mismatch, you can use the policy parameter (see below).
+sub replace
+{
+    my($self, $doc, $args) = @_;
+    # set default args
+    $doc ||= {};
+    $args ||= {};
+    # require valid args
+    die 'Invalid Args'
+        unless ref $doc eq 'HASH'
+        and ref $args eq 'HASH';
+
+    my $res = $self->arango->http->put(
+        $self->db_path . '/_api/document/' . $self->collection->name . '/' . $self->name,
+        $args,
+        $JSON->encode($doc),
+    );
+
+    # if replace was success then update internal state
+    if ( $res && $res->{_key} ) {
+        # empty data hash
+        my $data = $self->data;
+        %$data = ();
+        # copy data keys from doc
+        for my $key (keys %$doc) {
+            $data->{$key} = $doc->{$key};
+        }
+        # store revision number
+        $self->{rev} = $res->{_rev};
+    }
+
+    return $res;
+}
+
+# rev
+#
+# revision of currently loaded document data
+sub rev { $_[0]->{rev} }
 
 1;
+
 __END__
 
-=pod
 
 =head1 NAME
 
-ArangoDB::Document - An ArangoDB document
-
-=head1 DESCRIPTION
-
-Instance of ArangoDB document.
+ArangoDB::Document - ArangoDB document API methods
 
 =head1 METHODS
 
-=head2 new($raw_doc)
+=over 4
 
-Constructor.
+=item new
 
-=head2 id()
+=item create
 
-Returns identifer of the document.
+=item data
 
-=head2 revision()
+=item delete
 
-Returns revision of the document.
+=item get
 
-=head2 collection_id()
+=item head
 
-Returns collection identifier of the document.
+=item list
 
-=head2 document_handle()
+=item patch
 
-Returns document-handle.
+=item replace
 
-=head2 content()
+=item rev
 
-Returns content of the document.
-
-=head2 get($attr_name)
-
-Get the value of an attribute of the document
-
-=head2 set($attr_name,$value)
-
-Update the value of an attribute (Does not write to database)
-
-=head2 fetch()
-
-Fetch the document data from database.
-
-=head2 save($with_rev_check)
-
-Save the changes of document to database.
-
-$with_rev_check is boolean flag. If it's true, the ArangoDB checks that the revision of the document. If there is a conflict, this method raise a error.
-
-=head2 delete()
-
-Delete the document from database.
-
-=head2 any_edges()
-
-Returns the list of edges starting or ending in the document.
-
-=head2 in_edges()
-
-Returns the list of edges ending in the document.
-
-=head2 out_edges()
-
-Returns the list of edges starting in the document.
+=back
 
 =head1 AUTHOR
 
-Hideaki Ohno E<lt>hide.o.j55 {at} gmail.comE<gt>
+Ersun Warncke, C<< <ersun.warncke at outlook.com> >>
+
+http://ersun.warnckes.com
+
+=head1 COPYRIGHT
+
+Copyright (C) 2014 Ersun Warncke
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself.
 
 =cut
+
+
